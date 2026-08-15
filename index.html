@@ -1,0 +1,441 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AeroKawaii Flight Operations Desk</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet" />
+  <script>
+    tailwind = {
+      config: {
+        theme: {
+          extend: {
+            colors: {
+              sakura: '#FFDEE9',
+              lavender: '#E8E5F6',
+              mint: '#E3FDF5',
+              cream: '#FFFDF9'
+            },
+            fontFamily: {
+              soft: ['Nunito', 'sans-serif'],
+              mono: ['JetBrains Mono', 'monospace']
+            },
+            boxShadow: {
+              soft: '0 10px 25px rgba(139, 92, 246, 0.12)'
+            }
+          }
+        }
+      }
+    };
+  </script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  />
+  <style>
+    #map { min-height: 360px; }
+    .keyword-tag { border-radius: 9999px; padding: 0.1rem 0.6rem; font-weight: 700; margin: 0 0.2rem; display: inline-block; }
+    .mascot-bounce { animation: bounce 1.6s infinite; }
+    @keyframes bounce { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
+  </style>
+</head>
+<body class="bg-cream text-slate-800 font-soft">
+  <header class="sticky top-0 z-20 bg-white/80 backdrop-blur border-b border-lavender shadow-soft">
+    <div class="max-w-7xl mx-auto p-4 flex flex-wrap gap-4 items-center justify-between">
+      <div>
+        <h1 class="text-2xl font-extrabold">✈️ AeroKawaii Flight Operations Desk</h1>
+        <p class="text-sm text-slate-600">Tokyo Hub (RJTT) · Professional Telemetry, Kawaii Mood</p>
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 text-sm font-mono">
+        <div class="bg-sakura/60 rounded-2xl px-3 py-2 shadow-soft">LOCAL: <span id="clock-local"></span></div>
+        <div class="bg-lavender/70 rounded-2xl px-3 py-2 shadow-soft">ZULU: <span id="clock-zulu"></span></div>
+        <div class="bg-mint rounded-2xl px-3 py-2 shadow-soft">JST: <span id="clock-jst"></span></div>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto p-4 space-y-6">
+    <section class="grid lg:grid-cols-3 gap-4">
+      <article class="lg:col-span-2 bg-white rounded-2xl shadow-soft p-4 border border-lavender">
+        <div class="flex justify-between items-center mb-3">
+          <h2 class="text-xl font-bold">Live Kanto Radar (OpenSky)</h2>
+          <p id="radar-status" class="text-sm text-slate-600 font-mono">Initializing...</p>
+        </div>
+        <div id="map" class="rounded-2xl border border-slate-200"></div>
+      </article>
+      <article class="bg-white rounded-2xl shadow-soft p-4 border border-lavender">
+        <h2 class="text-xl font-bold mb-3">Dispatch Mascot</h2>
+        <div class="bg-mint rounded-2xl p-4 text-center">
+          <div id="mascot-face" class="text-6xl mascot-bounce" aria-live="polite">(◕‿◕)✈️</div>
+          <p id="mascot-alert" class="mt-3 font-semibold">All systems kawaii and stable!</p>
+          <p class="text-sm text-slate-600 mt-2">Mascot reacts to crosswind severity and radar health.</p>
+        </div>
+        <div class="mt-4 bg-lavender/60 rounded-2xl p-3 text-sm">
+          <p>Tracked aircraft: <span id="tracked-count" class="font-mono">0</span></p>
+          <p>Refresh: every 30s</p>
+        </div>
+      </article>
+    </section>
+
+    <section class="grid md:grid-cols-2 xl:grid-cols-4 gap-4">
+      <article class="bg-white rounded-2xl shadow-soft p-4 border border-lavender">
+        <h3 class="font-bold">Crosswind Vector</h3>
+        <div class="space-y-2 mt-2 text-sm">
+          <input id="runway-heading" type="number" min="1" max="36" step="1" class="w-full rounded-xl border p-2" placeholder="Runway (e.g. 24)" />
+          <input id="wind-direction" type="number" min="0" max="360" step="1" class="w-full rounded-xl border p-2" placeholder="Wind direction °" />
+          <input id="wind-speed" type="number" min="0" max="250" step="0.1" class="w-full rounded-xl border p-2" placeholder="Wind speed kt" />
+          <button id="calc-crosswind" class="w-full bg-sakura rounded-xl p-2 font-bold">Calculate</button>
+        </div>
+        <p id="crosswind-output" class="font-mono text-sm mt-3">Headwind: - | Crosswind: -</p>
+      </article>
+
+      <article class="bg-white rounded-2xl shadow-soft p-4 border border-lavender">
+        <h3 class="font-bold">WCA & Drift</h3>
+        <div class="space-y-2 mt-2 text-sm">
+          <input id="course" type="number" min="0" max="360" step="1" class="w-full rounded-xl border p-2" placeholder="Course °" />
+          <input id="tas" type="number" min="1" max="700" step="0.1" class="w-full rounded-xl border p-2" placeholder="TAS kt" />
+          <input id="wca-wind-direction" type="number" min="0" max="360" step="1" class="w-full rounded-xl border p-2" placeholder="Wind direction °" />
+          <input id="wca-wind-speed" type="number" min="0" max="250" step="0.1" class="w-full rounded-xl border p-2" placeholder="Wind speed kt" />
+          <button id="calc-wca" class="w-full bg-lavender rounded-xl p-2 font-bold">Compute WCA</button>
+        </div>
+        <p id="wca-output" class="font-mono text-sm mt-3">WCA: - | Corrected heading: -</p>
+      </article>
+
+      <article class="bg-white rounded-2xl shadow-soft p-4 border border-lavender">
+        <h3 class="font-bold">Altimeter Converter</h3>
+        <div class="space-y-2 mt-2 text-sm">
+          <input id="inhg" type="number" min="25" max="35" step="0.01" class="w-full rounded-xl border p-2" placeholder="inHg" />
+          <input id="hpa" type="number" min="846" max="1185" step="0.1" class="w-full rounded-xl border p-2" placeholder="hPa" />
+        </div>
+        <p class="text-xs mt-2 text-slate-600">Formula: hPa = inHg × 33.8639</p>
+      </article>
+
+      <article class="bg-white rounded-2xl shadow-soft p-4 border border-lavender">
+        <h3 class="font-bold">Aircraft Fleet Hangar</h3>
+        <select id="fleet-select" class="w-full rounded-xl border p-2 text-sm mt-2"></select>
+        <div class="mt-2 flex gap-2">
+          <input id="fleet-custom" type="text" class="flex-1 rounded-xl border p-2 text-sm" placeholder="Add aircraft profile" maxlength="40" />
+          <button id="fleet-save" class="bg-mint rounded-xl px-3 font-bold">Save</button>
+        </div>
+        <p id="fleet-active" class="text-sm mt-2">Active: -</p>
+      </article>
+    </section>
+
+    <section class="grid lg:grid-cols-2 gap-4">
+      <article class="bg-white rounded-2xl shadow-soft p-4 border border-lavender">
+        <h3 class="font-bold">Live ATC Audio</h3>
+        <div class="mt-3 space-y-2 text-sm">
+          <a class="block rounded-xl bg-sakura/70 p-3 hover:brightness-95" target="_blank" rel="noopener noreferrer" href="https://www.liveatc.net/search/?icao=RJTT">🎧 Haneda RJTT Streams</a>
+          <a class="block rounded-xl bg-lavender/70 p-3 hover:brightness-95" target="_blank" rel="noopener noreferrer" href="https://www.liveatc.net/search/?icao=RJAA">🎧 Narita RJAA Streams</a>
+        </div>
+      </article>
+
+      <article class="bg-white rounded-2xl shadow-soft p-4 border border-lavender">
+        <h3 class="font-bold">NOTAM RegEx Highlighter</h3>
+        <textarea id="notam-input" rows="6" class="w-full rounded-xl border p-2 text-sm mt-2 font-mono" placeholder="Paste NOTAM text..."></textarea>
+        <button id="highlight-notam" class="mt-2 bg-sakura rounded-xl px-3 py-2 font-bold">Highlight Hazards</button>
+        <div id="notam-output" class="mt-3 rounded-xl bg-slate-900 text-slate-100 p-3 text-sm font-mono min-h-24"></div>
+      </article>
+    </section>
+  </main>
+
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+  ></script>
+  <script>
+    const TOKYO_HUB = { lat: 35.5494, lon: 139.7798 };
+    const BBOX = { lamin: 34.8, lomin: 138.8, lamax: 36.2, lomax: 140.8 };
+    const OPSKY_URL = `https://opensky-network.org/api/states/all?lamin=${BBOX.lamin}&lomin=${BBOX.lomin}&lamax=${BBOX.lamax}&lomax=${BBOX.lomax}`;
+    const KEYWORDS = ['CLOSED', 'HAZARD', 'WIP', 'UNSERVICEABLE'];
+
+    const state = {
+      latestCrosswind: 0,
+      radarHealthy: true,
+      fleetProfiles: ['Cessna 172', 'Boeing 737', 'Airbus A320']
+    };
+
+    function safeNumber(raw, options = {}) {
+      const value = Number(raw);
+      if (!Number.isFinite(value)) return null;
+      if (options.min !== undefined && value < options.min) return null;
+      if (options.max !== undefined && value > options.max) return null;
+      return value;
+    }
+
+    function normDegrees(degrees) {
+      const normalized = degrees % 360;
+      return normalized < 0 ? normalized + 360 : normalized;
+    }
+
+    function updateClock() {
+      const now = new Date();
+      document.getElementById('clock-local').textContent = now.toLocaleTimeString();
+      document.getElementById('clock-zulu').textContent = now.toLocaleTimeString('en-GB', { timeZone: 'UTC', hour12: false }) + 'Z';
+      document.getElementById('clock-jst').textContent = now.toLocaleTimeString('en-GB', { timeZone: 'Asia/Tokyo', hour12: false }) + ' JST';
+    }
+
+    function updateMascot() {
+      const face = document.getElementById('mascot-face');
+      const alert = document.getElementById('mascot-alert');
+      if (!state.radarHealthy) {
+        face.textContent = '(ಠ_ಠ)📡';
+        alert.textContent = 'Radar uplink unstable. Switching to graceful fallback mode.';
+        return;
+      }
+      if (state.latestCrosswind >= 20) {
+        face.textContent = '(>_<)💨';
+        alert.textContent = 'Critical crosswind detected! Consider runway and drift correction.';
+      } else if (state.latestCrosswind >= 10) {
+        face.textContent = '(•̀ᴗ•́)و';
+        alert.textContent = 'Moderate crosswind. Keep WCA and runway alignment updated.';
+      } else {
+        face.textContent = '(◕‿◕)✈️';
+        alert.textContent = 'All systems kawaii and stable!';
+      }
+    }
+
+    const map = L.map('map', { zoomControl: true }).setView([TOKYO_HUB.lat, TOKYO_HUB.lon], 9);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+      attribution: '&copy; OpenStreetMap &copy; CARTO',
+      maxZoom: 19
+    }).addTo(map);
+
+    L.marker([TOKYO_HUB.lat, TOKYO_HUB.lon], {
+      icon: L.divIcon({ className: '', html: '<div style="font-size:24px;">🌸</div>', iconSize: [24, 24], iconAnchor: [12, 12] })
+    }).addTo(map).bindPopup('RJTT Haneda Hub 🌸');
+
+    const aircraftLayer = L.layerGroup().addTo(map);
+
+    function aircraftIcon(callsign) {
+      const emoji = (callsign || '').trim().toUpperCase().startsWith('JA') ? '⭐' : '🛩️';
+      return L.divIcon({ className: '', html: `<div style="font-size:20px;">${emoji}</div>`, iconSize: [20, 20], iconAnchor: [10, 10] });
+    }
+
+    function toFeet(meters) {
+      return meters * 3.280839895;
+    }
+
+    function toKnots(ms) {
+      return ms * 1.943844492;
+    }
+
+    async function refreshRadar() {
+      const status = document.getElementById('radar-status');
+      try {
+        status.textContent = 'Updating feed...';
+        const response = await fetch(OPSKY_URL, { headers: { Accept: 'application/json' } });
+        if (!response.ok) {
+          throw new Error(`OpenSky status ${response.status}`);
+        }
+        const payload = await response.json();
+        const states = Array.isArray(payload && payload.states) ? payload.states : [];
+
+        aircraftLayer.clearLayers();
+        let rendered = 0;
+
+        for (const entry of states) {
+          if (!Array.isArray(entry)) continue;
+          const callsign = String(entry[1] || 'UNKNOWN').trim();
+          const lon = safeNumber(entry[5], { min: -180, max: 180 });
+          const lat = safeNumber(entry[6], { min: -90, max: 90 });
+          if (lon === null || lat === null) continue;
+
+          const altitudeMeters = safeNumber(entry[7]);
+          const velocityMs = safeNumber(entry[9], { min: 0 });
+          const altitudeFeet = altitudeMeters === null ? 'N/A' : `${toFeet(altitudeMeters).toFixed(0)} ft`;
+          const speedKt = velocityMs === null ? 'N/A' : `${toKnots(velocityMs).toFixed(0)} kt`;
+
+          const marker = L.marker([lat, lon], { icon: aircraftIcon(callsign) });
+          const card = document.createElement('div');
+          card.className = 'text-sm';
+
+          const title = document.createElement('p');
+          title.className = 'font-bold';
+          title.textContent = `Callsign: ${callsign}`;
+
+          const alt = document.createElement('p');
+          alt.textContent = `Altitude: ${altitudeFeet}`;
+
+          const gs = document.createElement('p');
+          gs.textContent = `Ground Speed: ${speedKt}`;
+
+          card.append(title, alt, gs);
+          marker.bindPopup(card);
+          marker.addTo(aircraftLayer);
+          rendered += 1;
+        }
+
+        document.getElementById('tracked-count').textContent = String(rendered);
+        status.textContent = `Last update: ${new Date().toLocaleTimeString()}`;
+        state.radarHealthy = true;
+      } catch (error) {
+        state.radarHealthy = false;
+        status.textContent = 'Feed unavailable (rate-limited/offline). Retrying...';
+      }
+      updateMascot();
+    }
+
+    document.getElementById('calc-crosswind').addEventListener('click', () => {
+      const runwayRaw = safeNumber(document.getElementById('runway-heading').value, { min: 1, max: 36 });
+      const windDir = safeNumber(document.getElementById('wind-direction').value, { min: 0, max: 360 });
+      const windSpeed = safeNumber(document.getElementById('wind-speed').value, { min: 0, max: 250 });
+      const output = document.getElementById('crosswind-output');
+
+      if (runwayRaw === null || windDir === null || windSpeed === null) {
+        output.textContent = 'Please enter valid runway, wind direction, and wind speed.';
+        return;
+      }
+
+      const runwayHeadingDeg = normDegrees(runwayRaw * 10);
+      const angleDiffRad = ((windDir - runwayHeadingDeg) * Math.PI) / 180;
+      const headwind = windSpeed * Math.cos(angleDiffRad);
+      const crosswind = windSpeed * Math.sin(angleDiffRad);
+      state.latestCrosswind = Math.abs(crosswind);
+
+      const headLabel = headwind >= 0 ? 'Headwind' : 'Tailwind';
+      const crossLabel = crosswind >= 0 ? 'Crosswind from right' : 'Crosswind from left';
+      output.textContent = `${headLabel}: ${Math.abs(headwind).toFixed(2)} kt | ${crossLabel}: ${Math.abs(crosswind).toFixed(2)} kt`;
+      updateMascot();
+    });
+
+    document.getElementById('calc-wca').addEventListener('click', () => {
+      const course = safeNumber(document.getElementById('course').value, { min: 0, max: 360 });
+      const tas = safeNumber(document.getElementById('tas').value, { min: 1, max: 700 });
+      const windDir = safeNumber(document.getElementById('wca-wind-direction').value, { min: 0, max: 360 });
+      const windSpeed = safeNumber(document.getElementById('wca-wind-speed').value, { min: 0, max: 250 });
+      const output = document.getElementById('wca-output');
+
+      if (course === null || tas === null || windDir === null || windSpeed === null) {
+        output.textContent = 'Please enter valid course, TAS, and wind values.';
+        return;
+      }
+
+      const relRad = ((windDir - course) * Math.PI) / 180;
+      const ratio = (windSpeed * Math.sin(relRad)) / tas;
+      if (ratio < -1 || ratio > 1) {
+        output.textContent = 'Wind/TAS combination impossible for stable solution.';
+        return;
+      }
+
+      const wcaRad = Math.asin(ratio);
+      const wcaDeg = (wcaRad * 180) / Math.PI;
+      const corrected = normDegrees(course + wcaDeg);
+      output.textContent = `WCA: ${wcaDeg.toFixed(2)}° | Corrected heading: ${corrected.toFixed(2)}°`;
+    });
+
+    const inhgInput = document.getElementById('inhg');
+    const hpaInput = document.getElementById('hpa');
+
+    inhgInput.addEventListener('input', () => {
+      const inhg = safeNumber(inhgInput.value);
+      if (inhg === null) return;
+      hpaInput.value = (inhg * 33.8639).toFixed(2);
+    });
+
+    hpaInput.addEventListener('input', () => {
+      const hpa = safeNumber(hpaInput.value);
+      if (hpa === null) return;
+      inhgInput.value = (hpa / 33.8639).toFixed(2);
+    });
+
+    const storageKey = 'aerokawaii-fleet';
+    const activeKey = 'aerokawaii-active-fleet';
+    const fleetSelect = document.getElementById('fleet-select');
+    const fleetActive = document.getElementById('fleet-active');
+
+    function saveFleet() {
+      localStorage.setItem(storageKey, JSON.stringify(state.fleetProfiles));
+    }
+
+    function renderFleet() {
+      fleetSelect.replaceChildren();
+      state.fleetProfiles.forEach((profile) => {
+        const option = document.createElement('option');
+        option.value = profile;
+        option.textContent = profile;
+        fleetSelect.appendChild(option);
+      });
+      const active = localStorage.getItem(activeKey) || state.fleetProfiles[0] || '-';
+      fleetSelect.value = active;
+      fleetActive.textContent = `Active: ${active}`;
+    }
+
+    function loadFleet() {
+      try {
+        const raw = localStorage.getItem(storageKey);
+        const parsed = raw ? JSON.parse(raw) : null;
+        if (Array.isArray(parsed)) {
+          state.fleetProfiles = parsed.filter((name) => typeof name === 'string' && name.trim()).map((name) => name.trim()).slice(0, 20);
+          if (state.fleetProfiles.length === 0) {
+            state.fleetProfiles = ['Cessna 172', 'Boeing 737', 'Airbus A320'];
+          }
+        }
+      } catch {
+        state.fleetProfiles = ['Cessna 172', 'Boeing 737', 'Airbus A320'];
+      }
+      renderFleet();
+    }
+
+    fleetSelect.addEventListener('change', () => {
+      const chosen = fleetSelect.value;
+      localStorage.setItem(activeKey, chosen);
+      fleetActive.textContent = `Active: ${chosen}`;
+    });
+
+    document.getElementById('fleet-save').addEventListener('click', () => {
+      const custom = document.getElementById('fleet-custom');
+      const cleaned = custom.value.trim();
+      if (!cleaned) return;
+      if (!state.fleetProfiles.includes(cleaned)) {
+        state.fleetProfiles.push(cleaned);
+        saveFleet();
+      }
+      localStorage.setItem(activeKey, cleaned);
+      custom.value = '';
+      renderFleet();
+    });
+
+    document.getElementById('highlight-notam').addEventListener('click', () => {
+      const raw = document.getElementById('notam-input').value || '';
+      const output = document.getElementById('notam-output');
+      output.replaceChildren();
+
+      const regex = new RegExp(`\\b(${KEYWORDS.join('|')})\\b`, 'gi');
+      let current = 0;
+      let match;
+
+      while ((match = regex.exec(raw)) !== null) {
+        if (match.index > current) {
+          output.appendChild(document.createTextNode(raw.slice(current, match.index)));
+        }
+        const tag = document.createElement('span');
+        tag.className = 'keyword-tag bg-sakura text-slate-900';
+        tag.textContent = match[0].toUpperCase();
+        output.appendChild(tag);
+        current = match.index + match[0].length;
+      }
+
+      if (current < raw.length) {
+        output.appendChild(document.createTextNode(raw.slice(current)));
+      }
+      if (!raw.trim()) {
+        output.textContent = 'No NOTAM text provided.';
+      }
+    });
+
+    updateClock();
+    setInterval(updateClock, 1000);
+    loadFleet();
+    updateMascot();
+    refreshRadar();
+    setInterval(refreshRadar, 30000);
+  </script>
+</body>
+</html>
